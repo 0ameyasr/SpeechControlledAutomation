@@ -3,6 +3,7 @@ import numpy
 import soundfile
 from tensorflow.python.ops import gen_audio_ops
 import matplotlib.pyplot
+from tqdm import tqdm
 
 SAMPLING_RATE = 16000
 NOISE_FLOOR = 0.1
@@ -20,23 +21,6 @@ and fit for use.
 def getFilesFromDataset(command:str):
     audio_dataset = tensorflow.io.gfile.join("speech_data",command)
     return tensorflow.io.gfile.glob(audio_dataset+"/*.wav")
-
-# #Restrict the audio sample heard strictly to a one second duration as in the dataset
-# def getVoiceStamps(audio:tensorflow.Tensor,noise_floor:float=NOISE_FLOOR):
-#     audio -= tensorflow.math.reduce_mean(audio)
-#     audio /= tensorflow.math.reduce_max(tensorflow.abs(audio))
-    
-#     start = 0
-#     end = len(audio)
-#     for i, sample in enumerate(audio):
-#         if numpy.abs(sample) > noise_floor:
-#             start = i
-#             break
-#     for i in range(len(audio) - 1, -1, -1):
-#         if numpy.abs(audio[i]) > noise_floor:
-#             end = i
-#             break
-#     return audio[start:end+1]
 
 def getVoiceStamps(audio: tensorflow.Tensor, noise_floor: float = NOISE_FLOOR):
     audio -= tensorflow.reduce_mean(audio)
@@ -129,6 +113,7 @@ def plotSpectrogram(spectrogram, title="Spectrogram"):
     matplotlib.pyplot.title(title)
     matplotlib.pyplot.show()
 
+#Load normalised audio into the given sound files
 def loadNormalisedAudio(file):
     audio,_ = soundfile.read(file)
     audio_tensor = tensorflow.convert_to_tensor(audio)
@@ -137,6 +122,7 @@ def loadNormalisedAudio(file):
     audio /= tensorflow.reduce_max(tensorflow.abs(audio))
     return audio
 
+#Add randomisation to the sound
 def getRandomOffset(audio):
     # Calculate the end gap after trimming
     end_gap = len(audio) - MINIMUM_SPEECH_LENGTH
@@ -145,7 +131,7 @@ def getRandomOffset(audio):
     random_offset = numpy.random.uniform(0, end_gap)
     return random_offset
 
-
+#Add some noise for real-time ambiguation
 def addBackgroundNoise(audio, background_tensor, background_start, background_volume):
     # Calculate the length difference between audio and background noise
     audio_length = len(audio)
@@ -170,9 +156,8 @@ def addBackgroundNoise(audio, background_tensor, background_start, background_vo
     audio = audio + background_volume * background
     return audio
 
-
-
-def process_file(file_path):
+#Process file directly from the sound file in the dataset
+def processFile(file_path):
     # Load and normalize audio
     audio = loadNormalisedAudio(file_path)
     
@@ -201,9 +186,9 @@ audio_directory = getFilesFromDataset(command)
 for file in audio_directory:
     if isFileValid(file):
         audio,_ = soundfile.read(file)
-        plotSpectrogram(mapSpectrogram(audio))
-        plotSpectrogram(process_file(file))
-        #visualizeAudio(audio,f"Valid {file}")
+        plotSpectrogram(mapSpectrogram(audio),"Audio without ambiguation")
+        plotSpectrogram(processFile(file))
+        visualizeAudio(audio,f"Valid {file}")
         print(f"Valid: {file}")
     else:
         print(f"Invalid: {file}")
