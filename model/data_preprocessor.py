@@ -263,12 +263,11 @@ for file in audio_directory:
 
 """
 
-# #Process all words and all the files
-# for command in tqdm(COMMANDS,desc="Processing words..."):
-#     if '_' not in command:
-#         repeat=50 if command == 'on' else 1
-#         processCommand(command,repeat=repeat)
-processCommand("follow")
+#Process all words and all the files
+for command in tqdm(COMMANDS,desc="Processing words..."):
+    if '_' not in command:
+        repeat=50 if command == 'on' else 1
+        processCommand(command,repeat=repeat)
 print(len(TRAINING_SET),len(TESTING_SET),len(VALIDATION_SET))
 
 #Process background noise
