@@ -4,11 +4,19 @@ import soundfile
 from tensorflow.python.ops import gen_audio_ops
 import matplotlib.pyplot
 from tqdm import tqdm
+import pickle
 
 SAMPLING_RATE = 16000
 NOISE_FLOOR = 0.1
 MINIMUM_SPEECH_LENGTH = SAMPLING_RATE/4
-COMMANDS = ['zero','one','two','three','forward','backward','left','right']
+COMMANDS = ['follow','on','zero','one','two','three','off','_background']
+TRAINING_SET = []
+VALIDATION_SET = []
+TESTING_SET = []
+
+TRAINING_SET_SIZE=0.8
+VALIDATION_SET_SIZE=0.1
+TESTING_SET_SIZE=0.1
 
 """
 Audio Data-Preprocessing
@@ -115,9 +123,9 @@ def plotSpectrogram(spectrogram, title="Spectrogram"):
 
 #Load normalised audio into the given sound files
 def loadNormalisedAudio(file):
-    audio,_ = soundfile.read(file)
+    audio, _ = soundfile.read(file.numpy().decode('utf-8'))
     audio_tensor = tensorflow.convert_to_tensor(audio)
-    audio = tensorflow.cast(audio_tensor[:],tensorflow.float32)
+    audio = tensorflow.cast(audio_tensor[:], tensorflow.float32)
     audio -= tensorflow.reduce_mean(audio)
     audio /= tensorflow.reduce_max(tensorflow.abs(audio))
     return audio
@@ -179,7 +187,67 @@ def processFile(file_path):
     
     return mapSpectrogram(audio_stamps)
 
+def processFilesFromDataset(file_names, label, repeat=1):
+    file_names = tensorflow.repeat(file_names, repeat)
+    return [(processFile(file_name), label) for file_name in tqdm(file_names, desc=f"({label})", leave=False)]
 
+def processCommand(command,repeat=1):
+    #Indexing and labelling of the word
+    label = COMMANDS.index(command)
+    file_names = [file_name for file_name in tqdm(getFilesFromDataset(command), desc=f"Processing.. for {command}", leave=False) if isFileValid(file_name)]
+    
+    numpy.random.shuffle(file_names)
+
+    #Initialise the size of all sets
+    training_set_size=int(TRAINING_SET_SIZE*len(file_names))
+    validation_set_size=int(VALIDATION_SET_SIZE*len(file_names))
+    testing_set_size=int(TESTING_SET_SIZE*len(file_names))
+
+    #Randomly shuffle the filenames
+    print(file_names)
+    TRAINING_SET.extend(processFilesFromDataset(file_names[:training_set_size],label,repeat=repeat))
+    VALIDATION_SET.extend(processFilesFromDataset(file_names[training_set_size:training_set_size+validation_set_size],label,repeat=repeat))
+    TESTING_SET.extend(processFilesFromDataset(file_names[training_set_size+validation_set_size:],label,repeat=repeat))
+
+def processBackground(file_name, label):
+    #Load the audio file
+    audio,_ = soundfile.read(file_name)
+    audio_tensor = tensorflow.convert_to_tensor(audio)
+    audio = tensorflow.cast(audio_tensor[:],tensorflow.float32)
+    audio_length = len(audio)
+    samples = []
+
+    for section_start in tqdm(range(0, audio_length-SAMPLING_RATE, 8000), desc=file_name, leave=False):
+        section_end = section_start + SAMPLING_RATE
+        section = audio[section_start:section_end]
+        spectrogram = mapSpectrogram(section)
+        samples.append((spectrogram,label))
+
+    for section_index in tqdm(range(1000), desc='Simulated Words',leave=False):
+        section_start = numpy.random.randint(0,audio_length-SAMPLING_RATE)
+        section_end = section_start + SAMPLING_RATE
+        section = numpy.reshape(audio[section_start:section_end], (SAMPLING_RATE))
+
+        result = numpy.zeros((SAMPLING_RATE))
+        voice_length = numpy.random.randint(MINIMUM_SPEECH_LENGTH/2,SAMPLING_RATE)
+        voice_start = numpy.random.randint(0,SAMPLING_RATE-voice_length)
+        
+        hamming = numpy.hamming(voice_length)
+        result[voice_start:voice_start+voice_length] = hamming * section[voice_start:voice_start+voice_length]
+        spectrogram = mapSpectrogram(numpy.reshape(section, (16000,1)))
+        samples.append((spectrogram,label))
+
+    numpy.random.shuffle(samples)
+    training_set_size = int(TRAINING_SET_SIZE*len(samples))
+    validation_set_size = int(VALIDATION_SET_SIZE*len(samples))
+    testing_set_size = int(TESTING_SET_SIZE*len(samples))
+
+    TRAINING_SET.extend(samples[:training_set_size])
+    VALIDATION_SET.extend(samples[training_set_size:training_set_size+validation_set_size])
+    TESTING_SET.extend(samples[training_set_size+validation_set_size:])
+
+"""
+#Uncomment for debugging.
 #Get audio files from the audio directory for the given command-word
 command = "cat"
 audio_directory = getFilesFromDataset(command)
@@ -192,3 +260,46 @@ for file in audio_directory:
         print(f"Valid: {file}")
     else:
         print(f"Invalid: {file}")
+
+"""
+
+# #Process all words and all the files
+# for command in tqdm(COMMANDS,desc="Processing words..."):
+#     if '_' not in command:
+#         repeat=50 if command == 'on' else 1
+#         processCommand(command,repeat=repeat)
+processCommand("follow")
+print(len(TRAINING_SET),len(TESTING_SET),len(VALIDATION_SET))
+
+#Process background noise
+for file_name in tqdm(getFilesFromDataset('_background_noise_'),desc="Processing background noise..."):
+        processBackground(file_name,COMMANDS.index("_background"))
+print(len(TRAINING_SET),len(TESTING_SET),len(VALIDATION_SET))
+
+def filterSpectrogramShapes(spectrograms):
+    filtered_spectrograms = [(spec, label) for spec, label in spectrograms if spec.shape == (16000,0,129)]
+    return filtered_spectrograms
+
+# Filter the sets
+TRAINING_SET = filterSpectrogramShapes(TRAINING_SET)
+VALIDATION_SET = filterSpectrogramShapes(VALIDATION_SET)
+TESTING_SET = filterSpectrogramShapes(TESTING_SET)
+
+#Export the pre-processed data to sets
+X_train, Y_train = zip(*TRAINING_SET)
+X_validate, Y_validate = zip(*VALIDATION_SET)
+X_test, Y_test = zip(*TESTING_SET)
+
+#Dump the datasets
+numpy.savez_compressed(
+    "training_spectrogram.npz",
+    X=X_train, Y=Y_train)
+print("Saved training data")
+numpy.savez_compressed(
+    "validation_spectrogram.npz",
+    X=X_validate, Y=Y_validate)
+print("Saved validation data")
+numpy.savez_compressed(
+    "test_spectrogram.npz",
+    X=X_test, Y=Y_test)
+print("Saved test data")
