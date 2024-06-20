@@ -95,24 +95,6 @@ epochs=50
 model.compile(optimizer='adam',
               loss=tf.keras.losses.CategoricalCrossentropy(),
               metrics=['accuracy'])
-
-#Log the processes and display results on the TensorBoard
-log_dir = "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-    filepath="checkpoint.model",
-    monitor='val_accuracy',
-    mode='max',
-    save_best_only=True)
-
-history = model.fit(
-    train_dataset,
-    steps_per_epoch=len(X_train) // batch_size,
-    epochs=epochs,
-    validation_data=validation_dataset,
-    validation_steps=10,
-    callbacks=[tensorboard_callback, model_checkpoint_callback]
-)
 model.save("trained.model")
 
 #Test our trained model
